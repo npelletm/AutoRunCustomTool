@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using EnvDTE;
+using EnvDTE80;
 using Microsoft.VisualStudio;
 using Microsoft.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Shell;
@@ -31,7 +32,10 @@ namespace ThomasLevesque.AutoRunCustomTool
         private DocumentEvents _documentEvents;
         private OutputWindowPane _outputPane;
         private ErrorListProvider _errorListProvider;
-        private readonly Dictionary<int, IExtenderProvider> _registerExtenderProviders = new Dictionary<int, IExtenderProvider>();
+        //private readonly Dictionary<int, IExtenderProvider> _registerExtenderProviders = new Dictionary<int, IExtenderProvider>();
+        private ObjectExtenders _extensionManager;
+        private int _rebuildTTPropertyExtenderProviderCookie;
+
 
         public const string TargetsPropertyName = "RunCustomToolOn";
 
@@ -44,6 +48,20 @@ namespace ThomasLevesque.AutoRunCustomTool
             _events = _dte.Events;
             _documentEvents = _events.DocumentEvents;
             _documentEvents.DocumentSaved += DocumentEvents_DocumentSaved;
+
+            DTE2 dte2 = (DTE2)GetService(typeof(DTE));  
+            // Events
+            var events2 = (Events2)dte2.Events;
+            var projectsEvents = events2.ProjectsEvents;
+            var projectItemsEvents = events2.ProjectItemsEvents;
+            projectItemsEvents.ItemAdded += projectItemsEvents_ItemAdded;
+            projectItemsEvents.ItemRemoved += projectItemsEvents_ItemRemoved;
+            projectItemsEvents.ItemRenamed += projectItemsEvents_ItemRenamed;
+
+            //_documentEvents = _events.DocumentEvents;
+            //_buildEvents = _events.BuildEvents;
+
+
 
             var window = _dte.Windows.Item(EnvDTE.Constants.vsWindowKindOutput);
             
@@ -58,23 +76,60 @@ namespace ThomasLevesque.AutoRunCustomTool
                                       ProviderName = "AutoRunCustomTool",
                                       ProviderGuid = Guid.NewGuid()
                                  };
+
             RegisterExtenderProvider();
 
         }
 
+
+
+
+     
+      
+
+        //void RegisterExtenderProvider()
+        //{
+        //    var provider = new PropertyExtenderProvider(_dte, this);
+        //    string name = PropertyExtenderProvider.ExtenderName;
+        //    RegisterExtenderProvider(VSConstants.CATID.CSharpFileProperties_string, name, provider);
+        //    RegisterExtenderProvider(VSConstants.CATID.VBFileProperties_string, name, provider);
+        //}
+
+        //void RegisterExtenderProvider(string extenderCatId, string name, IExtenderProvider extenderProvider)
+        //{
+        //    int cookie = _dte.ObjectExtenders.RegisterExtenderProvider(extenderCatId, name, extenderProvider);
+        //    _registerExtenderProviders.Add(cookie, extenderProvider);
+        //}
         void RegisterExtenderProvider()
         {
-            var provider = new PropertyExtenderProvider(_dte, this);
-            string name = PropertyExtenderProvider.ExtenderName;
-            RegisterExtenderProvider(VSConstants.CATID.CSharpFileProperties_string, name, provider);
-            RegisterExtenderProvider(VSConstants.CATID.VBFileProperties_string, name, provider);
+            this._extensionManager = this.GetService(typeof(ObjectExtenders)) as ObjectExtenders;
+            if (this._extensionManager == null)
+            {
+                throw new InvalidOperationException("Failed to resolve the extension manager.");
+            }
+
+            this._rebuildTTPropertyExtenderProviderCookie = this._extensionManager.RegisterExtenderProvider(
+                RebuildTTExtenderProvider.SupportedExtenderCATID,
+                RebuildTTExtenderProvider.SupportedExtenderName,
+                new RebuildTTExtenderProvider());
         }
 
-        void RegisterExtenderProvider(string extenderCatId, string name, IExtenderProvider extenderProvider)
+
+        void projectItemsEvents_ItemRenamed(ProjectItem ProjectItem, string OldName)
         {
-            int cookie = _dte.ObjectExtenders.RegisterExtenderProvider(extenderCatId, name, extenderProvider);
-            _registerExtenderProviders.Add(cookie, extenderProvider);
+            //LogActivity("projectItemsEvents_ItemRenamed:" + ProjectItem.Name + "Old name:" + OldName);
         }
+
+        void projectItemsEvents_ItemRemoved(ProjectItem ProjectItem)
+        {
+            //LogActivity("projectItemsEvents_ItemRemoved:" + ProjectItem.Name);
+        }
+
+        void projectItemsEvents_ItemAdded(ProjectItem ProjectItem)
+        {
+            LogActivity("projectItemsEvents_ItemAdded:" + ProjectItem.Name);
+        }
+
 
         void DocumentEvents_DocumentSaved(Document doc)
         {
@@ -152,6 +207,8 @@ namespace ThomasLevesque.AutoRunCustomTool
                 vsTargetItem.RunCustomTool();
             }
         }
+
+
 
         private void LogActivity(string format, params object[] args)
         {
